@@ -16,26 +16,39 @@ Screenshot 2026-02-15 at 4.36.43 PM.png   │   └── vite-build-error-stack
 
 ## Install
 
-**Standalone binary** (no Node/Bun required) — grab the one for your platform from
-[Releases](https://github.com/zachkamran/organize/releases):
-
 ```bash
-curl -fsSL https://github.com/zachkamran/organize/releases/latest/download/organize-darwin-arm64 \
-  -o /usr/local/bin/organize && chmod +x /usr/local/bin/organize
+npm install -g organize-ai
 ```
 
-**Via npm/bun:**
+> Or run without installing: `bunx organize-ai` / `npx organize-ai`
+
+<details>
+<summary><strong>Standalone binary</strong> — no Node or Bun required</summary>
+
+Download the binary for your platform from [Releases](https://github.com/zachkamran/organize/releases/latest), then:
 
 ```bash
-npm install -g organize-ai     # or: bunx organize-ai
+chmod +x organize-* && mv organize-* /usr/local/bin/organize
 ```
 
-**From source:**
+| Platform | Binary |
+|---|---|
+| macOS (Apple Silicon) | `organize-darwin-arm64` |
+| macOS (Intel) | `organize-darwin-x64` |
+| Linux (x64 / arm64) | `organize-linux-x64` / `organize-linux-arm64` |
+| Windows | `organize-windows-x64.exe` |
+
+</details>
+
+<details>
+<summary><strong>From source</strong></summary>
 
 ```bash
 git clone https://github.com/zachkamran/organize && cd organize
 bun install && bun run build && bun link
 ```
+
+</details>
 
 ## Quick start
 
