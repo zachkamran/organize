@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -14,6 +14,9 @@ interface CacheEntry extends Analysis {
 }
 
 type CacheData = Record<string, CacheEntry>;
+
+/** Cap cache size; oldest entries are evicted first. */
+const MAX_ENTRIES = 5000;
 
 export function cacheDir(): string {
   const base =
@@ -70,14 +73,41 @@ export class AnalysisCache {
   set(key: string, analysis: Analysis): void {
     this.data[key] = { ...analysis, cachedAt: new Date().toISOString() };
     this.dirty = true;
+    this.scheduleSave();
   }
 
-  /** Persist to disk (call after each batch; cheap, atomic-enough for a CLI). */
+  /** Debounced save so an interrupted run keeps the analyses already paid for. */
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private scheduleSave(): void {
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.save();
+    }, 1000);
+    // Don't keep the process alive just to flush the cache
+    this.saveTimer.unref?.();
+  }
+
+  /** Persist to disk atomically (temp file + rename). */
   save(): void {
     if (!this.dirty) return;
+    this.prune();
     mkdirSync(cacheDir(), { recursive: true });
-    writeFileSync(cachePath(), JSON.stringify(this.data, null, 2));
+    const target = cachePath();
+    const temp = `${target}.tmp-${process.pid}`;
+    writeFileSync(temp, JSON.stringify(this.data));
+    renameSync(temp, target);
     this.dirty = false;
+  }
+
+  /** Evict oldest entries beyond the cap so the cache can't grow unbounded. */
+  private prune(): void {
+    const keys = Object.keys(this.data);
+    if (keys.length <= MAX_ENTRIES) return;
+    keys
+      .sort((a, b) => (this.data[a]!.cachedAt < this.data[b]!.cachedAt ? -1 : 1))
+      .slice(0, keys.length - MAX_ENTRIES)
+      .forEach((key) => delete this.data[key]);
   }
 
   static clear(): void {

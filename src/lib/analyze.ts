@@ -66,67 +66,77 @@ export async function analyzeImages(
   let cacheHits = 0;
   let done = 0;
 
-  const poolResults = await runPool(images, options.concurrency, async (image) => {
-    const bytes = readFileSync(image.path);
-    const key = cacheKey(bytes, options.modelString, options.pinnedCategories, options.instructions);
+  async function processOne(image: ScannedImage): Promise<void> {
+    try {
+      const bytes = readFileSync(image.path);
+      const key = cacheKey(bytes, options.modelString, options.pinnedCategories, options.instructions);
 
-    if (!options.noCache) {
-      const cached = cache.get(key);
-      if (cached) {
-        cacheHits++;
-        seenCategories.add(cached.category);
-        options.onProgress?.(++done, images.length, true);
-        return { path: image.path, analysis: cached };
+      if (!options.noCache) {
+        const cached = cache.get(key);
+        if (cached) {
+          cacheHits++;
+          seenCategories.add(cached.category);
+          results.set(image.path, cached);
+          options.onProgress?.(++done, images.length, true);
+          return;
+        }
       }
+
+      // Oversized images are downscaled in memory only — the file on disk is untouched.
+      let sendBytes: Buffer = bytes;
+      let mediaType = MEDIA_TYPES[image.ext] ?? "image/png";
+      if (bytes.length > MAX_FILE_BYTES) {
+        const prepared = await downscaleForAnalysis(bytes);
+        sendBytes = prepared.bytes;
+        mediaType = prepared.mediaType;
+      }
+
+      const { object } = await generateObject({
+        model: options.resolved.model,
+        schema: analysisSchema,
+        maxOutputTokens: 1024,
+        maxRetries: 3,
+        system: buildSystemPrompt(options.pinnedCategories, seenCategories, options.instructions),
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image",
+                image: sendBytes,
+                mediaType,
+              },
+              { type: "text", text: `Original filename: ${image.name}` },
+            ],
+          },
+        ],
+      });
+
+      seenCategories.add(object.category);
+      cache.set(key, object);
+      results.set(image.path, object);
+      options.onProgress?.(++done, images.length, false);
+    } catch (error) {
+      failures.push({
+        path: image.path,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      options.onProgress?.(++done, images.length, false);
     }
+  }
 
-    // Oversized images are downscaled in memory only — the file on disk is untouched.
-    let sendBytes: Buffer = bytes;
-    let mediaType = MEDIA_TYPES[image.ext] ?? "image/png";
-    if (bytes.length > MAX_FILE_BYTES) {
-      const prepared = await downscaleForAnalysis(bytes);
-      sendBytes = prepared.bytes;
-      mediaType = prepared.mediaType;
-    }
-
-    const { object } = await generateObject({
-      model: options.resolved.model,
-      schema: analysisSchema,
-      maxOutputTokens: 1024,
-      maxRetries: 3,
-      system: buildSystemPrompt(options.pinnedCategories, seenCategories, options.instructions),
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              image: sendBytes,
-              mediaType,
-            },
-            { type: "text", text: `Original filename: ${image.name}` },
-          ],
-        },
-      ],
-    });
-
-    seenCategories.add(object.category);
-    cache.set(key, object);
-    options.onProgress?.(++done, images.length, false);
-    return { path: image.path, analysis: object };
-  });
+  // Seed the category vocabulary: process the first image alone so concurrent
+  // lanes don't all start with an empty "existing categories" list.
+  const needsSeed = seenCategories.size === 0 && images.length > 1;
+  const [first, ...rest] = images;
+  if (needsSeed && first) {
+    await processOne(first);
+    await runPool(rest, options.concurrency, processOne);
+  } else {
+    await runPool(images, options.concurrency, processOne);
+  }
 
   cache.save();
-
-  poolResults.forEach((result, i) => {
-    if (result.ok) {
-      results.set(result.value.path, result.value.analysis);
-    } else {
-      options.onProgress?.(++done, images.length, false);
-      failures.push({ path: images[i]!.path, error: result.error.message });
-    }
-  });
-
   return { results, failures, cacheHits };
 }
 

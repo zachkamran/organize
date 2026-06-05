@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import pc from "picocolors";
 import { analyzeImages, consolidateCategories } from "../lib/analyze";
@@ -38,7 +38,14 @@ export async function runCommand(dirArg: string | undefined, options: RunOptions
 
   const modelString = options.model ?? config.model;
   const rename = options.rename === false ? false : config.rename;
-  const concurrency = options.concurrency ? parseInt(options.concurrency, 10) : config.concurrency;
+  let concurrency = config.concurrency;
+  if (options.concurrency !== undefined) {
+    concurrency = parseInt(options.concurrency, 10);
+    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 50) {
+      console.error(pc.red(`--concurrency must be an integer between 1 and 50, got "${options.concurrency}"`));
+      process.exit(1);
+    }
+  }
   const outRoot = resolve(options.out ?? join(dir, "Organized"));
   const pinnedCategories = [
     ...config.categories,
@@ -47,6 +54,15 @@ export async function runCommand(dirArg: string | undefined, options: RunOptions
   const instructions = [config.instructions, options.prompt ?? ""]
     .filter((s) => s.trim() !== "")
     .join("\n");
+
+  // --- Resolve model (validates API key before any work) -------------------
+  let resolved;
+  try {
+    resolved = resolveModel(modelString);
+  } catch (error) {
+    console.error(pc.red((error as Error).message));
+    process.exit(1);
+  }
 
   // --- Scan ---------------------------------------------------------------
   const { images, skipped } = scanImages(dir);
@@ -59,15 +75,6 @@ export async function runCommand(dirArg: string | undefined, options: RunOptions
   }
   console.log(`Found ${pc.bold(String(images.length))} image(s) in ${dir}`);
   console.log(`Model: ${pc.cyan(modelString)}\n`);
-
-  // --- Resolve model (validates API key before any work) -------------------
-  let resolved;
-  try {
-    resolved = resolveModel(modelString);
-  } catch (error) {
-    console.error(pc.red((error as Error).message));
-    process.exit(1);
-  }
 
   // --- Analyze --------------------------------------------------------------
   const { results, failures, cacheHits } = await analyzeImages(images, {
@@ -132,15 +139,14 @@ export async function runCommand(dirArg: string | undefined, options: RunOptions
   for (const [category, moves] of [...byCategory.entries()].sort()) {
     console.log(pc.bold(pc.green(`${category}/`)) + pc.dim(` (${moves.length})`));
     for (const move of moves) {
-      const fromName = move.from.split("/").pop();
-      console.log(`  ${pc.dim(fromName ?? "")} ${pc.dim("→")} ${move.toName}`);
+      console.log(`  ${pc.dim(basename(move.from))} ${pc.dim("→")} ${move.toName}`);
       console.log(`    ${pc.dim(move.description)}`);
     }
   }
   if (failures.length > 0) {
     console.log(pc.red(`\n${failures.length} file(s) failed to analyze and will be left in place:`));
     for (const failure of failures) {
-      console.log(pc.red(`  ${failure.path.split("/").pop()}: ${failure.error}`));
+      console.log(pc.red(`  ${basename(failure.path)}: ${failure.error}`));
     }
   }
 

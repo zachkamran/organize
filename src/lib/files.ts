@@ -1,11 +1,11 @@
-import { copyFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { constants, copyFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
+import { join, parse } from "node:path";
 
 /** Sanitize an AI-suggested filename into safe kebab-case (no extension). */
 export function sanitizeFilename(suggested: string, fallback: string): string {
   const cleaned = suggested
     .toLowerCase()
-    .replace(/\.[a-z0-9]{2,4}$/i, "") // strip any extension the model added
+    .replace(/\.(png|jpe?g|webp|gif)$/i, "") // strip any image extension the model added
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "") // strip diacritics
     .replace(/['"]/g, "")
@@ -49,24 +49,50 @@ export interface PlannedMove {
   toName: string;
 }
 
-/** Move (or copy) a file, creating directories; rename with cross-device fallback. */
+/**
+ * Move (or copy) a file, creating directories; rename with cross-device
+ * fallback. Never overwrites: if the planned name was taken between planning
+ * and execution, a -2/-3 suffix is retried.
+ */
 export function executeMove(move: PlannedMove, copy: boolean): string {
   mkdirSync(move.toDir, { recursive: true });
-  const dest = join(move.toDir, move.toName);
-  if (copy) {
-    copyFileSync(move.from, dest);
-  } else {
+
+  const { name: base, ext } = parse(move.toName);
+  let toName = move.toName;
+  for (let attempt = 2; ; attempt++) {
+    const dest = join(move.toDir, toName);
     try {
-      renameSync(move.from, dest);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "EXDEV") {
-        copyFileSync(move.from, dest);
-        unlinkSync(move.from);
+      if (copy) {
+        copyFileSync(move.from, dest, constants.COPYFILE_EXCL);
       } else {
-        throw error;
+        // No atomic no-overwrite rename in node — link+unlink gives EEXIST safety.
+        moveNoOverwrite(move.from, dest);
       }
+      return dest;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        toName = `${base}-${attempt}${ext}`; // name got taken since planning; re-suffix
+        continue;
+      }
+      throw error;
     }
   }
-  return dest;
+}
+
+function moveNoOverwrite(from: string, dest: string): void {
+  if (existsSync(dest)) {
+    const error = new Error(`destination exists: ${dest}`) as NodeJS.ErrnoException;
+    error.code = "EEXIST";
+    throw error;
+  }
+  try {
+    renameSync(from, dest);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EXDEV") {
+      copyFileSync(from, dest, constants.COPYFILE_EXCL);
+      unlinkSync(from);
+    } else {
+      throw error;
+    }
+  }
 }
