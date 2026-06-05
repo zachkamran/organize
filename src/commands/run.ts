@@ -11,6 +11,7 @@ import {
   sanitizeFilename,
   type PlannedMove,
 } from "../lib/files";
+import { formatCost, formatRunningCost, loadPriceCatalog } from "../lib/pricing";
 import { resolveModel } from "../lib/providers";
 import { scanImages } from "../lib/scan";
 
@@ -77,16 +78,18 @@ export async function runCommand(dirArg: string | undefined, options: RunOptions
   console.log(`Model: ${pc.cyan(modelString)}\n`);
 
   // --- Analyze --------------------------------------------------------------
-  const { results, failures, cacheHits } = await analyzeImages(images, {
+  await loadPriceCatalog(); // live model prices (cached 24h, offline fallback)
+  const { results, failures, cacheHits, usage } = await analyzeImages(images, {
     resolved,
     modelString,
     pinnedCategories,
     instructions,
     concurrency,
     noCache: options.cache === false,
-    onProgress: (done, total, fromCache) => {
+    onProgress: (done, total, fromCache, runningUsage) => {
+      const cost = formatRunningCost(resolved.modelId, runningUsage);
       process.stderr.write(
-        `\r${pc.dim(`analyzing ${done}/${total}${fromCache ? " (cache)" : ""}   `)}`,
+        `\r${pc.dim(`analyzing ${done}/${total}${cost ? ` · ${cost}` : ""}${fromCache ? " (cache)" : ""}   `)}`,
       );
     },
   });
@@ -105,7 +108,7 @@ export async function runCommand(dirArg: string | undefined, options: RunOptions
 
   // --- Consolidate categories ----------------------------------------------
   const rawCategories = [...new Set([...results.values()].map((r) => r.category))];
-  const mapping = await consolidateCategories(rawCategories, resolved, pinnedCategories);
+  const mapping = await consolidateCategories(rawCategories, resolved, pinnedCategories, usage);
 
   // --- Build move plan -------------------------------------------------------
   const takenByDir = new Map<string, Set<string>>();
@@ -150,8 +153,10 @@ export async function runCommand(dirArg: string | undefined, options: RunOptions
     }
   }
 
+  console.log(pc.dim(`\nAPI usage: ${formatCost(resolved.modelId, usage)}`));
+
   if (options.dryRun) {
-    console.log(pc.cyan(`\nDry run — nothing moved. Results are cached; running again is free.`));
+    console.log(pc.cyan(`Dry run — nothing moved. Results are cached; running again is free.`));
     return;
   }
 

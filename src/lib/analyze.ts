@@ -4,6 +4,7 @@ import { z } from "zod";
 import { AnalysisCache, cacheKey, type Analysis } from "./cache";
 import { downscaleForAnalysis } from "./downscale";
 import { runPool } from "./pool";
+import type { Usage } from "./pricing";
 import type { ResolvedModel } from "./providers";
 import { MAX_FILE_BYTES, MEDIA_TYPES, type ScannedImage } from "./scan";
 
@@ -28,13 +29,14 @@ export interface AnalyzeOptions {
   instructions: string; // config instructions + --prompt, already merged
   concurrency: number;
   noCache: boolean;
-  onProgress?: (done: number, total: number, fromCache: boolean) => void;
+  onProgress?: (done: number, total: number, fromCache: boolean, usage: Usage) => void;
 }
 
 export interface AnalyzeOutcome {
   results: Map<string, Analysis>; // keyed by file path
   failures: Array<{ path: string; error: string }>;
   cacheHits: number;
+  usage: Usage;
 }
 
 function buildSystemPrompt(pinned: string[], seen: Set<string>, instructions: string): string {
@@ -63,6 +65,7 @@ export async function analyzeImages(
   const results = new Map<string, Analysis>();
   const failures: Array<{ path: string; error: string }> = [];
   const seenCategories = new Set<string>(options.pinnedCategories);
+  const usage: Usage = { inputTokens: 0, outputTokens: 0 };
   let cacheHits = 0;
   let done = 0;
 
@@ -77,7 +80,7 @@ export async function analyzeImages(
           cacheHits++;
           seenCategories.add(cached.category);
           results.set(image.path, cached);
-          options.onProgress?.(++done, images.length, true);
+          options.onProgress?.(++done, images.length, true, usage);
           return;
         }
       }
@@ -91,7 +94,7 @@ export async function analyzeImages(
         mediaType = prepared.mediaType;
       }
 
-      const { object } = await generateObject({
+      const { object, usage: callUsage } = await generateObject({
         model: options.resolved.model,
         schema: analysisSchema,
         maxOutputTokens: 1024,
@@ -112,16 +115,18 @@ export async function analyzeImages(
         ],
       });
 
+      usage.inputTokens += callUsage.inputTokens ?? 0;
+      usage.outputTokens += callUsage.outputTokens ?? 0;
       seenCategories.add(object.category);
       cache.set(key, object);
       results.set(image.path, object);
-      options.onProgress?.(++done, images.length, false);
+      options.onProgress?.(++done, images.length, false, usage);
     } catch (error) {
       failures.push({
         path: image.path,
         error: error instanceof Error ? error.message : String(error),
       });
-      options.onProgress?.(++done, images.length, false);
+      options.onProgress?.(++done, images.length, false, usage);
     }
   }
 
@@ -137,7 +142,7 @@ export async function analyzeImages(
   }
 
   cache.save();
-  return { results, failures, cacheHits };
+  return { results, failures, cacheHits, usage };
 }
 
 /**
@@ -149,12 +154,13 @@ export async function consolidateCategories(
   categories: string[],
   resolved: ResolvedModel,
   pinned: string[],
+  usage?: Usage,
 ): Promise<Record<string, string>> {
   const identity = Object.fromEntries(categories.map((c) => [c, c]));
   if (categories.length <= 2) return identity;
 
   try {
-    const { object } = await generateObject({
+    const { object, usage: callUsage } = await generateObject({
       model: resolved.model,
       schema: z.object({
         mapping: z
@@ -175,6 +181,10 @@ export async function consolidateCategories(
       messages: [{ role: "user", content: `Categories:\n${categories.join("\n")}` }],
     });
 
+    if (usage) {
+      usage.inputTokens += callUsage.inputTokens ?? 0;
+      usage.outputTokens += callUsage.outputTokens ?? 0;
+    }
     const mapping = { ...identity };
     for (const { from, to } of object.mapping) {
       if (from in mapping && to.trim() !== "") mapping[from] = to.trim();
