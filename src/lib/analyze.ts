@@ -2,9 +2,10 @@ import { readFileSync } from "node:fs";
 import { generateObject } from "ai";
 import { z } from "zod";
 import { AnalysisCache, cacheKey, type Analysis } from "./cache";
+import { downscaleForAnalysis } from "./downscale";
 import { runPool } from "./pool";
 import type { ResolvedModel } from "./providers";
-import { MEDIA_TYPES, type ScannedImage } from "./scan";
+import { MAX_FILE_BYTES, MEDIA_TYPES, type ScannedImage } from "./scan";
 
 const analysisSchema = z.object({
   category: z
@@ -79,6 +80,15 @@ export async function analyzeImages(
       }
     }
 
+    // Oversized images are downscaled in memory only — the file on disk is untouched.
+    let sendBytes: Buffer = bytes;
+    let mediaType = MEDIA_TYPES[image.ext] ?? "image/png";
+    if (bytes.length > MAX_FILE_BYTES) {
+      const prepared = await downscaleForAnalysis(bytes);
+      sendBytes = prepared.bytes;
+      mediaType = prepared.mediaType;
+    }
+
     const { object } = await generateObject({
       model: options.resolved.model,
       schema: analysisSchema,
@@ -91,8 +101,8 @@ export async function analyzeImages(
           content: [
             {
               type: "image",
-              image: bytes,
-              mediaType: MEDIA_TYPES[image.ext] ?? "image/png",
+              image: sendBytes,
+              mediaType,
             },
             { type: "text", text: `Original filename: ${image.name}` },
           ],

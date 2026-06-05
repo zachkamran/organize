@@ -11,8 +11,8 @@ export const MEDIA_TYPES: Record<string, string> = {
   ".gif": "image/gif",
 };
 
-/** API limit guard — most providers reject images over ~5MB. */
-export const MAX_FILE_BYTES = 5 * 1024 * 1024;
+/** Above this, images are downscaled in memory before analysis (~5MB API limit). */
+export const MAX_FILE_BYTES = 4 * 1024 * 1024;
 
 export interface ScannedImage {
   path: string;
@@ -45,10 +45,6 @@ export function scanImages(dir: string): ScanResult {
     }
     if (!stats.isFile()) continue;
 
-    if (stats.size > MAX_FILE_BYTES) {
-      skipped.push({ path, reason: `too large (${(stats.size / 1024 / 1024).toFixed(1)}MB > 5MB)` });
-      continue;
-    }
     if (stats.size === 0) {
       skipped.push({ path, reason: "empty file" });
       continue;
