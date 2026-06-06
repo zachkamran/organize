@@ -119,6 +119,8 @@ export function scanImages(dir: string, options: ScanOptions = {}): ScanResult {
       }
 
       if (stats.isDirectory()) {
+        // Skip dependency trees and macOS bundles — never user screenshots
+        if (entry === "node_modules" || /\.(app|photoslibrary|bundle|framework)$/i.test(entry)) continue;
         if (options.recursive) walk(path);
         continue;
       }

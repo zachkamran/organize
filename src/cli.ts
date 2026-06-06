@@ -19,7 +19,10 @@ program
   .description(
     "AI-powered file organizer — looks at your screenshots, describes them, and sorts them into folders.",
   )
-  .version(VERSION);
+  .version(VERSION)
+  // Without this, root options (e.g. --include-subdirs) swallow identically
+  // named subcommand options before the subcommand can see them.
+  .enablePositionalOptions();
 
 program
   .argument("[dir]", "directory to organize (default: current directory)")
