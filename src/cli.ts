@@ -2,7 +2,10 @@
 import { Command } from "commander";
 import { authCommand } from "./commands/auth";
 import { configCommand } from "./commands/config";
+import { findCommand } from "./commands/find";
+import { indexCommand } from "./commands/index-cmd";
 import { runCommand } from "./commands/run";
+import { undoCommand } from "./commands/undo";
 import { AnalysisCache } from "./lib/cache";
 
 const program = new Command();
@@ -12,14 +15,15 @@ program
   .description(
     "AI-powered file organizer — looks at your screenshots, describes them, and sorts them into folders.",
   )
-  .version("0.1.0");
+  .version("0.2.0");
 
 program
   .argument("[dir]", "directory to organize (default: current directory)")
   .option("--dry-run", "analyze and show the plan without moving anything")
   .option("-y, --yes", "skip the confirmation prompt")
   .option("--out <dir>", "destination root (default: <dir>/Organized)")
-  .option("--model <id>", "model, e.g. anthropic/claude-opus-4-8, openai/gpt-5.2")
+  .option("--model <id>", "model, e.g. anthropic/claude-haiku-4-5 or ollama/qwen3-vl (local)")
+  .option("--include-subdirs", "recurse into subdirectories")
   .option("--prompt <text>", "extra instructions, e.g. \"use SOC 2 trust criteria as categories\"")
   .option("--categories <list>", "comma-separated pinned categories the AI should prefer")
   .option("--no-rename", "keep original filenames")
@@ -27,6 +31,31 @@ program
   .option("--concurrency <n>", "parallel API calls")
   .option("--no-cache", "force fresh analysis, ignoring cached results")
   .action(runCommand);
+
+program
+  .command("undo")
+  .description("revert the last run (moves files back where they came from)")
+  .action(undoCommand);
+
+program
+  .command("find")
+  .description("search analyzed images by description — instant, no API calls")
+  .argument("<query>", 'what you remember about the image, e.g. "stripe invoice march"')
+  .option("--limit <n>", "max results to show", "10")
+  .option("--all", "show all matches")
+  .option("--keyword", "keyword matching only (skip semantic search)")
+  .action(findCommand);
+
+program
+  .command("index")
+  .description("analyze images to make them searchable WITHOUT moving anything")
+  .argument("[dir]", "directory to index (default: current directory)")
+  .option("--model <id>", "model, e.g. anthropic/claude-haiku-4-5 or ollama/qwen3-vl")
+  .option("--prompt <text>", "extra analysis instructions")
+  .option("--concurrency <n>", "parallel API calls")
+  .option("--include-subdirs", "recurse into subdirectories")
+  .option("--embed", "also compute embeddings for semantic find")
+  .action(indexCommand);
 
 program
   .command("auth")

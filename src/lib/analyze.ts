@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { generateObject } from "ai";
 import { z } from "zod";
-import { AnalysisCache, cacheKey, type Analysis } from "./cache";
-import { downscaleForAnalysis } from "./downscale";
+import { AnalysisCache, cacheKey, sha256, type Analysis } from "./cache";
+import { convertHeicForAnalysis, downscaleForAnalysis } from "./downscale";
+import { perceptualHash } from "./dupes";
 import { runPool } from "./pool";
 import type { Usage } from "./pricing";
 import type { ResolvedModel } from "./providers";
@@ -37,6 +38,10 @@ export interface AnalyzeOutcome {
   failures: Array<{ path: string; error: string }>;
   cacheHits: number;
   usage: Usage;
+  /** sha256 of file contents, for exact-duplicate detection. */
+  fileHashes: Map<string, string>;
+  /** Perceptual hashes (where computable), for near-duplicate detection. */
+  phashes: Map<string, string>;
 }
 
 function buildSystemPrompt(pinned: string[], seen: Set<string>, instructions: string): string {
@@ -66,12 +71,15 @@ export async function analyzeImages(
   const failures: Array<{ path: string; error: string }> = [];
   const seenCategories = new Set<string>(options.pinnedCategories);
   const usage: Usage = { inputTokens: 0, outputTokens: 0 };
+  const fileHashes = new Map<string, string>();
+  const phashes = new Map<string, string>();
   let cacheHits = 0;
   let done = 0;
 
   async function processOne(image: ScannedImage): Promise<void> {
     try {
       const bytes = readFileSync(image.path);
+      fileHashes.set(image.path, sha256(bytes));
       const key = cacheKey(bytes, options.modelString, options.pinnedCategories, options.instructions);
 
       if (!options.noCache) {
@@ -80,18 +88,36 @@ export async function analyzeImages(
           cacheHits++;
           seenCategories.add(cached.category);
           results.set(image.path, cached);
+          if (cached.phash) phashes.set(image.path, cached.phash);
+          cache.touch(key, image.path);
           options.onProgress?.(++done, images.length, true, usage);
           return;
         }
       }
 
-      // Oversized images are downscaled in memory only — the file on disk is untouched.
+      // Formats providers can't ingest are converted, and oversized images are
+      // downscaled — both in memory only; the file on disk is untouched.
       let sendBytes: Buffer = bytes;
       let mediaType = MEDIA_TYPES[image.ext] ?? "image/png";
-      if (bytes.length > MAX_FILE_BYTES) {
-        const prepared = await downscaleForAnalysis(bytes);
+      if (image.ext === ".heic") {
+        const prepared = convertHeicForAnalysis(image.path);
         sendBytes = prepared.bytes;
         mediaType = prepared.mediaType;
+      } else if (image.ext === ".tif" || image.ext === ".tiff" || bytes.length > MAX_FILE_BYTES) {
+        const prepared = await downscaleForAnalysis(bytes); // jimp decodes tiff → jpeg
+        sendBytes = prepared.bytes;
+        mediaType = prepared.mediaType;
+      }
+
+      // Perceptual hash for near-duplicate detection (gif animations excluded)
+      let phash: string | undefined;
+      if (image.ext !== ".gif") {
+        try {
+          phash = await perceptualHash(sendBytes);
+          phashes.set(image.path, phash);
+        } catch {
+          // non-fatal — jimp can't decode everything (e.g. some webp variants)
+        }
       }
 
       const { object, usage: callUsage } = await generateObject({
@@ -118,7 +144,7 @@ export async function analyzeImages(
       usage.inputTokens += callUsage.inputTokens ?? 0;
       usage.outputTokens += callUsage.outputTokens ?? 0;
       seenCategories.add(object.category);
-      cache.set(key, object);
+      cache.set(key, object, { path: image.path, phash });
       results.set(image.path, object);
       options.onProgress?.(++done, images.length, false, usage);
     } catch (error) {
@@ -142,7 +168,7 @@ export async function analyzeImages(
   }
 
   cache.save();
-  return { results, failures, cacheHits, usage };
+  return { results, failures, cacheHits, usage, fileHashes, phashes };
 }
 
 /**

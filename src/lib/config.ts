@@ -13,14 +13,17 @@ export interface Config {
   categories: string[];
   /** Parallel API calls */
   concurrency: number;
+  /** Embedding model for semantic `find` (e.g. openai/text-embedding-3-small, ollama/nomic-embed-text) */
+  embeddingModel: string;
 }
 
 export const DEFAULT_CONFIG: Config = {
-  model: "anthropic/claude-opus-4-8",
+  model: "anthropic/claude-haiku-4-5",
   rename: true,
   instructions: "",
   categories: [],
   concurrency: 5,
+  embeddingModel: "openai/text-embedding-3-small",
 };
 
 export function configDir(): string {

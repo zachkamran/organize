@@ -9,14 +9,19 @@ export interface Analysis {
   filename: string;
 }
 
-interface CacheEntry extends Analysis {
+export interface CacheEntry extends Analysis {
   cachedAt: string;
+  /** Last known location of the file — powers `organize find`. */
+  path?: string;
+  /** Perceptual dHash (16 hex chars) — powers near-duplicate detection. */
+  phash?: string;
 }
 
 type CacheData = Record<string, CacheEntry>;
 
-/** Cap cache size; oldest entries are evicted first. */
-const MAX_ENTRIES = 5000;
+/** Cap cache size; oldest entries are evicted first. Sized for large image
+ * libraries — entries are small (~300 bytes), so 50k ≈ 15MB on disk. */
+const MAX_ENTRIES = 50_000;
 
 export function cacheDir(): string {
   const base =
@@ -63,17 +68,31 @@ export class AnalysisCache {
     }
   }
 
-  get(key: string): Analysis | null {
-    const entry = this.data[key];
-    if (!entry) return null;
-    const { category, description, filename } = entry;
-    return { category, description, filename };
+  get(key: string): CacheEntry | null {
+    return this.data[key] ?? null;
   }
 
-  set(key: string, analysis: Analysis): void {
-    this.data[key] = { ...analysis, cachedAt: new Date().toISOString() };
+  set(key: string, analysis: Analysis, extra?: { path?: string; phash?: string }): void {
+    this.data[key] = { ...analysis, ...extra, cachedAt: new Date().toISOString() };
     this.dirty = true;
     this.scheduleSave();
+  }
+
+  /** Refresh the last-known path (and phash) on a cache hit. */
+  touch(key: string, path: string, phash?: string): void {
+    const entry = this.data[key];
+    if (!entry) return;
+    if (entry.path !== path || (phash && entry.phash !== phash)) {
+      entry.path = path;
+      if (phash) entry.phash = phash;
+      this.dirty = true;
+      this.scheduleSave();
+    }
+  }
+
+  /** All entries with their keys — for `organize find` and embedding sync. */
+  entries(): Array<{ key: string; entry: CacheEntry }> {
+    return Object.entries(this.data).map(([key, entry]) => ({ key, entry }));
   }
 
   /** Debounced save so an interrupted run keeps the analyses already paid for. */

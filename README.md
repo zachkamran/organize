@@ -1,6 +1,8 @@
 # organize
 
-AI-powered CLI that **looks at your screenshots**, describes them, renames them descriptively, and sorts them into folders — using the vision model of your choice (Anthropic, OpenAI, or Google).
+AI-powered CLI that **looks at your screenshots**, describes them, renames them descriptively, and sorts them into folders — using the vision model of your choice: Anthropic, OpenAI, Google, or a **fully local model via Ollama / LM Studio**.
+
+Every image it analyzes becomes **searchable**: `organize find "stripe invoice"` finds that screenshot you took months ago, instantly, with zero API calls.
 
 ```
 Before                                    After
@@ -50,9 +52,32 @@ organize ~/Desktop --dry-run
 organize ~/Desktop
 ```
 
+## Find anything you've ever screenshotted
+
+```bash
+organize index ~/Pictures/Screenshots --include-subdirs   # analyze once, move nothing
+organize find "salary table"                              # instant — searches local cache
+organize find "that error about the database connection"
+```
+
+`index` analyzes and caches without reorganizing — ideal for big libraries. `find` searches descriptions, AI filenames, and categories. For fuzzier matching ("the one with the blue graph"), enable semantic search:
+
+```bash
+organize index ~/Pictures/Screenshots --embed   # embeds descriptions (~$0.02/1M tokens)
+organize find "revenue going up"                # now matches by meaning, not just words
+```
+
+Embedding models are configurable too — `openai/text-embedding-3-small` (default) or fully local `ollama/nomic-embed-text`.
+
+## Undo
+
+```bash
+organize undo   # puts every file from the last run back where it came from
+```
+
 ## How it works
 
-1. **Scan** — finds images (`png`, `jpg`, `jpeg`, `webp`, `gif`) in the directory.
+1. **Scan** — finds images (`png`, `jpg`, `jpeg`, `webp`, `gif`, `heic`, `tiff`) in the directory (`--include-subdirs` to recurse). HEIC (iPhone) is converted on the fly on macOS; symlinks and fake/corrupt images are skipped. **Exact duplicates** (byte-identical) are routed to a `Duplicates/` folder; visually-similar near-duplicates are reported.
 2. **Analyze** — each image is sent to the model, which returns a structured `{category, description, filename}`. Categories are **auto-discovered**: the model invents broad ones and is told to reuse categories already seen, then a final consolidation pass merges near-duplicates.
 3. **Plan** — you see every proposed move (`old-name → Category/new-name`) before anything happens.
 4. **Move** — files land in `<dir>/Organized/<Category>/` with descriptive kebab-case names. Collisions get `-2`, `-3` suffixes.
@@ -88,16 +113,28 @@ Pinned categories (via `--categories` or config) are preferred by the model but 
 
 ## Models & providers
 
-Default is `anthropic/claude-opus-4-8`. Use any vision-capable model:
+Default is `anthropic/claude-haiku-4-5` — fast and cheap, plenty for screenshot classification. Use any vision-capable model:
 
 ```bash
-organize ~/Desktop --model anthropic/claude-haiku-4-5   # cheapest
+organize ~/Desktop --model anthropic/claude-opus-4-8    # maximum quality
 organize ~/Desktop --model openai/gpt-5.2
 organize ~/Desktop --model google/gemini-3-pro
-organize config set model anthropic/claude-haiku-4-5    # make it the default
+organize config set model anthropic/claude-opus-4-8     # change the default
 ```
 
-API keys are resolved per provider: env var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`) first, then the macOS Keychain (`organize auth <provider>`).
+### Local models — free and private
+
+Run entirely on your machine with [Ollama](https://ollama.com) or LM Studio — no API key, no cost, images never leave your computer:
+
+```bash
+ollama pull qwen3-vl                       # any vision-capable model
+organize ~/Desktop --model ollama/qwen3-vl
+organize ~/Desktop --model lmstudio/qwen3-vl
+```
+
+Endpoints default to `localhost:11434` / `localhost:1234`; override with `OLLAMA_BASE_URL` / `LMSTUDIO_BASE_URL`.
+
+API keys for cloud providers are resolved per provider: env var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`) first, then the macOS Keychain (`organize auth <provider>`).
 
 ## All options
 
@@ -109,11 +146,15 @@ organize [dir]                    default: current directory
   --model <id>                    provider/model
   --prompt <text>                 extra instructions for this run
   --categories <a,b,c>            pinned categories the AI should prefer
+  --include-subdirs               recurse into subdirectories
   --no-rename                     keep original filenames
   --copy                          copy instead of move
   --concurrency <n>               parallel API calls (default 5)
   --no-cache                      force fresh analysis
 
+organize undo                     revert the last run
+organize find <query>             search analyzed images (--limit, --all, --keyword)
+organize index [dir]              make images searchable without moving (--embed for semantic)
 organize auth [provider]          store a key in the macOS Keychain
 organize config [show|get|set|path]
 organize cache clear
@@ -125,17 +166,18 @@ organize cache clear
 
 ```json
 {
-  "model": "anthropic/claude-opus-4-8",
+  "model": "anthropic/claude-haiku-4-5",
   "rename": true,
   "instructions": "",
   "categories": [],
-  "concurrency": 5
+  "concurrency": 5,
+  "embeddingModel": "openai/text-embedding-3-small"
 }
 ```
 
 ## Cost
 
-Roughly $0.005–0.02 per image with Opus 4.8, ~10× less with Haiku 4.5. A 280-screenshot desktop is a few dollars on Opus, well under a dollar on Haiku. Dry runs are cached, so experimenting with the move plan costs nothing extra.
+Live cost shows in the progress line and a summary prints after every run (prices via the LiteLLM catalog). Ballpark per image: ~$0.001–0.003 on Haiku 4.5 (default), ~10× that on Opus 4.8, **$0.00 on a local Ollama model**. A 280-screenshot desktop is well under a dollar on Haiku. Analyses are cached by content hash, so dry runs, re-runs, and `find` cost nothing extra.
 
 ## License
 

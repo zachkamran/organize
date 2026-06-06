@@ -1,6 +1,6 @@
 {
   "name": "organize-ai",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI-powered CLI that looks at your screenshots and files, describes them, and organizes them into folders — multi-provider (Anthropic, OpenAI, Google).",
   "type": "module",
   "bin": {
@@ -38,6 +38,7 @@
     "@ai-sdk/anthropic": "^3.0.81",
     "@ai-sdk/google": "^3.0.80",
     "@ai-sdk/openai": "^3.0.68",
+    "@ai-sdk/openai-compatible": "^2.0.48",
     "ai": "^6.0.197",
     "commander": "^15.0.0",
     "jimp": "^1.6.1",
