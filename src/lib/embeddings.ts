@@ -10,12 +10,14 @@ import { missingKeyMessage, resolveApiKey } from "./auth";
 /**
  * Embedding model strings mirror the chat-model format:
  *
- *   voyage/voyage-multimodal-3      (cloud — TRUE IMAGE embeddings: the image
- *                                    itself is embedded, not its description)
- *   openai/text-embedding-3-small   (cloud, text-only: embeds descriptions)
- *   google/gemini-embedding-001     (cloud, text-only)
- *   ollama/nomic-embed-text         (local, free, text-only)
- *   lmstudio/<model>                (local, free, text-only)
+ *   voyage/voyage-multimodal-3                      (TRUE IMAGE embeddings)
+ *   openrouter/google/gemini-embedding-2            (TRUE IMAGE embeddings)
+ *   openrouter/nvidia/llama-nemotron-embed-vl-1b-v2:free  (image embeddings, free)
+ *   openrouter/<any-text-embedding-model>           (text-only: embeds descriptions)
+ *   openai/text-embedding-3-small                   (cloud, text-only)
+ *   google/gemini-embedding-001                     (cloud, text-only)
+ *   ollama/nomic-embed-text                         (local, free, text-only)
+ *   lmstudio/<model>                                (local, free, text-only)
  *
  * Anthropic has no embeddings API, so the default is OpenAI's small model.
  */
@@ -23,7 +25,12 @@ export const DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small";
 
 /** Multimodal models embed pixels; text models embed the AI description. */
 export function isMultimodalEmbedding(modelString: string): boolean {
-  return modelString.startsWith("voyage/");
+  if (modelString.startsWith("voyage/")) return true;
+  if (modelString.startsWith("openrouter/")) {
+    // Image-capable embedding models on OpenRouter (text-only ones embed descriptions)
+    return /gemini-embedding-2|embed-vl/i.test(modelString);
+  }
+  return false;
 }
 
 export function resolveEmbeddingModel(modelString: string): EmbeddingModel {
@@ -136,8 +143,11 @@ export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
 
 /** Embed many texts (batched). Returns vectors in input order. */
 export async function embedTexts(modelString: string, texts: string[]): Promise<number[][]> {
-  if (isMultimodalEmbedding(modelString)) {
+  if (modelString.startsWith("voyage/")) {
     return voyageEmbed(modelString, texts.map((text) => ({ type: "text", text })), "document");
+  }
+  if (modelString.startsWith("openrouter/")) {
+    return openrouterEmbed(modelString, texts);
   }
   const { embeddings } = await embedMany({
     model: resolveEmbeddingModel(modelString),
@@ -153,18 +163,26 @@ export async function embedImages(
   images: Array<{ base64: string; mediaType: string }>,
 ): Promise<number[][]> {
   if (!isMultimodalEmbedding(modelString)) {
-    throw new Error(`${modelString} is text-only — image embedding needs e.g. voyage/voyage-multimodal-3`);
+    throw new Error(
+      `${modelString} is text-only — image embedding needs e.g. voyage/voyage-multimodal-3 or openrouter/google/gemini-embedding-2`,
+    );
   }
-  return voyageEmbed(
+  if (modelString.startsWith("voyage/")) {
+    return voyageEmbed(modelString, images.map((img) => ({ type: "image", ...img })), "document");
+  }
+  return openrouterEmbed(
     modelString,
-    images.map((img) => ({ type: "image", ...img })),
-    "document",
+    images.map((img) => `data:${img.mediaType};base64,${img.base64}`),
   );
 }
 
 export async function embedQuery(modelString: string, text: string): Promise<Float32Array> {
-  if (isMultimodalEmbedding(modelString)) {
+  if (modelString.startsWith("voyage/")) {
     const [vector] = await voyageEmbed(modelString, [{ type: "text", text }], "query");
+    return new Float32Array(vector!);
+  }
+  if (modelString.startsWith("openrouter/")) {
+    const [vector] = await openrouterEmbed(modelString, [text]);
     return new Float32Array(vector!);
   }
   const { embedding } = await embed({
@@ -173,6 +191,29 @@ export async function embedQuery(modelString: string, text: string): Promise<Flo
     maxRetries: 2,
   });
   return new Float32Array(embedding);
+}
+
+/**
+ * OpenRouter embeddings — OpenAI-compatible /v1/embeddings. Multimodal models
+ * (gemini-embedding-2, nemotron-embed-vl) accept data-URL strings as inputs.
+ */
+async function openrouterEmbed(modelString: string, inputs: string[]): Promise<number[][]> {
+  const apiKey = resolveApiKey("openrouter");
+  if (!apiKey) throw new Error(missingKeyMessage("openrouter"));
+  const model = modelString.slice("openrouter/".length);
+
+  const response = await fetch("https://openrouter.ai/api/v1/embeddings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ model, input: inputs }),
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`OpenRouter embeddings error ${response.status}: ${body.slice(0, 200)}`);
+  }
+  const json = (await response.json()) as { data: Array<{ embedding: number[] }> };
+  return json.data.map((d) => d.embedding);
 }
 
 // ---------------------------------------------------------------------------

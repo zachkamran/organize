@@ -72,13 +72,16 @@ organize find "revenue going up"                # now matches by meaning, not ju
 Text embeddings match the AI's one-line *description*. With a **multimodal** embedding model, the image itself is embedded — so visual qualities nobody wrote down ("dark mode", "blue dashboard", "handwritten") become searchable:
 
 ```bash
-organize auth voyage                                          # voyageai.com key (free tier)
-organize config set embeddingModel voyage/voyage-multimodal-3
+# Free, via an OpenRouter key:
+organize config set embeddingModel openrouter/nvidia/llama-nemotron-embed-vl-1b-v2:free
+# Or higher quality: openrouter/google/gemini-embedding-2 (check your OpenRouter
+# privacy settings allow its endpoints), or voyage/voyage-multimodal-3 (Voyage key)
+
 organize index ~/Pictures/Screenshots --embed                 # embeds the pixels
 organize find "dark dashboard with a big blue area chart" --preview
 ```
 
-Note: OpenAI's `text-embedding-3-*` models are text-only and cannot embed images — multimodal embeddings need Voyage (`voyage-multimodal-3`) or similar.
+Note: OpenAI's `text-embedding-3-*` models are text-only and cannot embed images — use one of the multimodal models above for visual search.
 
 Text embedding models are configurable too — `openai/text-embedding-3-small` (default) or fully local `ollama/nomic-embed-text`.
 
@@ -136,7 +139,7 @@ organize ~/Desktop --model openrouter/qwen/qwen3-vl-235b    # any model on openr
 organize config set model anthropic/claude-opus-4-8         # change the default
 ```
 
-[OpenRouter](https://openrouter.ai) gives you one key for hundreds of models (`organize auth openrouter`). Note: OpenRouter is chat/vision only — it has no embeddings endpoint, so image embeddings still require a Voyage key.
+[OpenRouter](https://openrouter.ai) gives you one key for hundreds of models (`organize auth openrouter`), including multimodal embedding models for image search.
 
 ### Local models — free and private
 
