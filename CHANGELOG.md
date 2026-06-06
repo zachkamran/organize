@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); the format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.1] - 2026-06-06
+
+### Added
+- **`organize watch`** — keep the search index fresh automatically. Foreground mode (`organize watch ~/Desktop --embed`) re-indexes on file changes with a debounce; on macOS, `--install` sets up a launchd agent that runs in the background and survives reboots (`--uninstall` to remove). Keys must be in the Keychain (`organize auth`) since launchd doesn't read shell env.
+- **OpenRouter embeddings** — `embeddingModel openrouter/<model>` works for text models and, for image embeddings, `openrouter/google/gemini-embedding-2` and `openrouter/nvidia/llama-nemotron-embed-vl-1b-v2:free` (free). One OpenRouter key now covers vision analysis *and* visual search.
+
+### Fixed
+- `--include-subdirs` (and other flags shared with the root command) were silently swallowed when used with subcommands like `index`.
+- Recursive scans no longer descend into `node_modules` or macOS bundles (`.app`, `.photoslibrary`, `.framework`).
+
 ## [0.3.0] - 2026-06-05
 
 ### Added
@@ -57,6 +67,7 @@ All notable changes to this project are documented here. Versions follow [SemVer
 - In-memory downscaling for oversized images (originals never modified).
 - Standalone binaries for macOS/Linux/Windows via GitHub Releases.
 
+[0.3.1]: https://github.com/zachkamran/organize/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/zachkamran/organize/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/zachkamran/organize/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/zachkamran/organize/compare/v0.1.1...v0.1.2

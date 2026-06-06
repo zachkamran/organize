@@ -10,7 +10,7 @@ import { watchCommand } from "./commands/watch";
 import { AnalysisCache } from "./lib/cache";
 import { maybeNotifyUpdate } from "./lib/update";
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 
 const program = new Command();
 
