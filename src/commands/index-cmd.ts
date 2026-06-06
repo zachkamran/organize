@@ -1,13 +1,14 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import pc from "picocolors";
 import { analyzeImages } from "../lib/analyze";
 import { AnalysisCache } from "../lib/cache";
 import { loadConfig } from "../lib/config";
-import { embedTexts, resolveEmbeddingModel, VectorStore } from "../lib/embeddings";
+import { convertHeicForAnalysis, downscaleForAnalysis } from "../lib/downscale";
+import { embedImages, embedTexts, isMultimodalEmbedding, VectorStore } from "../lib/embeddings";
 import { formatCost, formatRunningCost, loadPriceCatalog } from "../lib/pricing";
 import { resolveModel } from "../lib/providers";
-import { scanImages } from "../lib/scan";
+import { MEDIA_TYPES, scanImages } from "../lib/scan";
 
 export interface IndexOptions {
   model?: string;
@@ -83,33 +84,71 @@ export async function indexCommand(dirArg: string | undefined, options: IndexOpt
   console.log(`\nSearch it: ${pc.cyan(`organize find "what you remember"`)}`);
 }
 
-/** Embed every cached analysis that doesn't have a vector yet (batched). */
+/**
+ * Embed every cached analysis that doesn't have a vector yet (batched).
+ * Multimodal models (voyage/*) embed the IMAGE PIXELS; text models embed the
+ * AI-written description.
+ */
 async function embedMissing(embeddingModelString: string): Promise<void> {
-  let model;
-  try {
-    model = resolveEmbeddingModel(embeddingModelString);
-  } catch (error) {
-    console.error(pc.red((error as Error).message));
-    return;
-  }
-
+  const multimodal = isMultimodalEmbedding(embeddingModelString);
   const store = new VectorStore(embeddingModelString);
-  const missing = new AnalysisCache().entries().filter(({ key }) => !store.has(key));
+  let missing = new AnalysisCache().entries().filter(({ key }) => !store.has(key));
+  if (multimodal) {
+    // Image embedding needs the actual file on disk
+    missing = missing.filter(({ entry }) => entry.path && existsSync(entry.path));
+  }
   if (missing.length === 0) {
     console.log(pc.dim("Embeddings already up to date."));
     return;
   }
 
-  console.log(pc.dim(`Embedding ${missing.length} description(s) with ${embeddingModelString}…`));
-  const BATCH = 100;
-  for (let i = 0; i < missing.length; i += BATCH) {
-    const batch = missing.slice(i, i + BATCH);
-    const texts = batch.map(({ entry }) => `${entry.filename}. ${entry.category}. ${entry.description}`);
-    const vectors = await embedTexts(model, texts);
-    batch.forEach(({ key }, j) => store.set(key, vectors[j]!));
-    process.stderr.write(`\r${pc.dim(`embedding ${Math.min(i + BATCH, missing.length)}/${missing.length}   `)}`);
+  console.log(
+    pc.dim(
+      `Embedding ${missing.length} ${multimodal ? "image(s) — true visual embeddings" : "description(s)"} with ${embeddingModelString}…`,
+    ),
+  );
+  const BATCH = multimodal ? 8 : 100; // image payloads are big; keep requests modest
+  let done = 0;
+  try {
+    for (let i = 0; i < missing.length; i += BATCH) {
+      const batch = missing.slice(i, i + BATCH);
+      let vectors: number[][];
+      if (multimodal) {
+        const images = await Promise.all(batch.map(({ entry }) => prepareImagePayload(entry.path!)));
+        vectors = await embedImages(embeddingModelString, images);
+      } else {
+        const texts = batch.map(
+          ({ entry }) => `${entry.filename}. ${entry.category}. ${entry.description}`,
+        );
+        vectors = await embedTexts(embeddingModelString, texts);
+      }
+      batch.forEach(({ key }, j) => store.set(key, vectors[j]!));
+      done = Math.min(i + BATCH, missing.length);
+      process.stderr.write(`\r${pc.dim(`embedding ${done}/${missing.length}   `)}`);
+    }
+  } catch (error) {
+    process.stderr.write("\n");
+    console.error(pc.red((error as Error).message));
+    if (done > 0) console.log(pc.dim(`Keeping the ${done} embeddings already computed.`));
   }
   process.stderr.write("\n");
   store.save();
-  console.log(pc.green(`Embedded ${missing.length} description(s) — semantic search enabled.`));
+  if (done === missing.length) {
+    console.log(pc.green(`Embedded ${missing.length} — semantic search enabled.`));
+  }
+}
+
+/** Base64 payload for Voyage, downscaled in memory (HEIC converted via sips). */
+async function prepareImagePayload(path: string): Promise<{ base64: string; mediaType: string }> {
+  const bytes = readFileSync(path);
+  if (path.toLowerCase().endsWith(".heic")) {
+    const prepared = convertHeicForAnalysis(path);
+    return { base64: prepared.bytes.toString("base64"), mediaType: prepared.mediaType };
+  }
+  if (bytes.length > 1024 * 1024 || /\.(tif|tiff)$/i.test(path)) {
+    const prepared = await downscaleForAnalysis(bytes);
+    return { base64: prepared.bytes.toString("base64"), mediaType: prepared.mediaType };
+  }
+  const ext = path.toLowerCase().match(/\.[a-z]+$/)?.[0] ?? ".png";
+  return { base64: bytes.toString("base64"), mediaType: MEDIA_TYPES[ext] ?? "image/png" };
 }

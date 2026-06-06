@@ -10,14 +10,21 @@ import { missingKeyMessage, resolveApiKey } from "./auth";
 /**
  * Embedding model strings mirror the chat-model format:
  *
- *   openai/text-embedding-3-small   (cloud, cheap: ~$0.02 per 1M tokens)
- *   google/gemini-embedding-001     (cloud)
- *   ollama/nomic-embed-text         (local, free)
- *   lmstudio/<model>                (local, free)
+ *   voyage/voyage-multimodal-3      (cloud — TRUE IMAGE embeddings: the image
+ *                                    itself is embedded, not its description)
+ *   openai/text-embedding-3-small   (cloud, text-only: embeds descriptions)
+ *   google/gemini-embedding-001     (cloud, text-only)
+ *   ollama/nomic-embed-text         (local, free, text-only)
+ *   lmstudio/<model>                (local, free, text-only)
  *
  * Anthropic has no embeddings API, so the default is OpenAI's small model.
  */
 export const DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small";
+
+/** Multimodal models embed pixels; text models embed the AI description. */
+export function isMultimodalEmbedding(modelString: string): boolean {
+  return modelString.startsWith("voyage/");
+}
 
 export function resolveEmbeddingModel(modelString: string): EmbeddingModel {
   const slash = modelString.indexOf("/");
@@ -128,12 +135,82 @@ export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
 }
 
 /** Embed many texts (batched). Returns vectors in input order. */
-export async function embedTexts(model: EmbeddingModel, texts: string[]): Promise<number[][]> {
-  const { embeddings } = await embedMany({ model, values: texts, maxRetries: 2 });
+export async function embedTexts(modelString: string, texts: string[]): Promise<number[][]> {
+  if (isMultimodalEmbedding(modelString)) {
+    return voyageEmbed(modelString, texts.map((text) => ({ type: "text", text })), "document");
+  }
+  const { embeddings } = await embedMany({
+    model: resolveEmbeddingModel(modelString),
+    values: texts,
+    maxRetries: 2,
+  });
   return embeddings;
 }
 
-export async function embedQuery(model: EmbeddingModel, text: string): Promise<Float32Array> {
-  const { embedding } = await embed({ model, value: text, maxRetries: 2 });
+/** Embed images themselves (multimodal models only). One vector per image. */
+export async function embedImages(
+  modelString: string,
+  images: Array<{ base64: string; mediaType: string }>,
+): Promise<number[][]> {
+  if (!isMultimodalEmbedding(modelString)) {
+    throw new Error(`${modelString} is text-only — image embedding needs e.g. voyage/voyage-multimodal-3`);
+  }
+  return voyageEmbed(
+    modelString,
+    images.map((img) => ({ type: "image", ...img })),
+    "document",
+  );
+}
+
+export async function embedQuery(modelString: string, text: string): Promise<Float32Array> {
+  if (isMultimodalEmbedding(modelString)) {
+    const [vector] = await voyageEmbed(modelString, [{ type: "text", text }], "query");
+    return new Float32Array(vector!);
+  }
+  const { embedding } = await embed({
+    model: resolveEmbeddingModel(modelString),
+    value: text,
+    maxRetries: 2,
+  });
   return new Float32Array(embedding);
+}
+
+// ---------------------------------------------------------------------------
+// Voyage AI multimodal embeddings (REST — no AI SDK provider exists yet).
+// Text queries and images land in the same vector space.
+// ---------------------------------------------------------------------------
+
+type VoyageInput = { type: "text"; text: string } | { type: "image"; base64: string; mediaType: string };
+
+async function voyageEmbed(
+  modelString: string,
+  inputs: VoyageInput[],
+  inputType: "document" | "query",
+): Promise<number[][]> {
+  const apiKey = resolveApiKey("voyage");
+  if (!apiKey) throw new Error(missingKeyMessage("voyage"));
+  const model = modelString.slice("voyage/".length);
+
+  const response = await fetch("https://api.voyageai.com/v1/multimodalembeddings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      input_type: inputType,
+      inputs: inputs.map((input) => ({
+        content: [
+          input.type === "text"
+            ? { type: "text", text: input.text }
+            : { type: "image_base64", image_base64: `data:${input.mediaType};base64,${input.base64}` },
+        ],
+      })),
+    }),
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Voyage API error ${response.status}: ${body.slice(0, 200)}`);
+  }
+  const json = (await response.json()) as { data: Array<{ embedding: number[] }> };
+  return json.data.map((d) => d.embedding);
 }

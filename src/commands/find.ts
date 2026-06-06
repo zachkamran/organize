@@ -3,7 +3,7 @@ import { basename } from "node:path";
 import pc from "picocolors";
 import { AnalysisCache, type CacheEntry } from "../lib/cache";
 import { loadConfig } from "../lib/config";
-import { cosineSimilarity, embedQuery, resolveEmbeddingModel, VectorStore } from "../lib/embeddings";
+import { cosineSimilarity, embedQuery, VectorStore } from "../lib/embeddings";
 import { detectGraphics, renderImage } from "../lib/render";
 
 export interface FindOptions {
@@ -41,7 +41,7 @@ export async function findCommand(query: string, options: FindOptions): Promise<
     const store = new VectorStore(config.embeddingModel);
     if (store.size() > 0) {
       try {
-        const queryVector = await embedQuery(resolveEmbeddingModel(config.embeddingModel), query);
+        const queryVector = await embedQuery(config.embeddingModel, query);
         for (const { key } of entries) {
           const vector = store.get(key);
           if (vector) semantic.set(key, cosineSimilarity(queryVector, vector));

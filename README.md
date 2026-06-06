@@ -60,14 +60,27 @@ organize find "salary table"                              # instant — searches
 organize find "that error about the database connection"
 ```
 
-`index` analyzes and caches without reorganizing — ideal for big libraries. `find` searches descriptions, AI filenames, and categories. For fuzzier matching ("the one with the blue graph"), enable semantic search:
+`index` analyzes and caches without reorganizing — ideal for big libraries. `find` searches descriptions, AI filenames, and categories. For fuzzier matching, enable semantic search:
 
 ```bash
 organize index ~/Pictures/Screenshots --embed   # embeds descriptions (~$0.02/1M tokens)
 organize find "revenue going up"                # now matches by meaning, not just words
 ```
 
-Embedding models are configurable too — `openai/text-embedding-3-small` (default) or fully local `ollama/nomic-embed-text`.
+### True image embeddings
+
+Text embeddings match the AI's one-line *description*. With a **multimodal** embedding model, the image itself is embedded — so visual qualities nobody wrote down ("dark mode", "blue dashboard", "handwritten") become searchable:
+
+```bash
+organize auth voyage                                          # voyageai.com key (free tier)
+organize config set embeddingModel voyage/voyage-multimodal-3
+organize index ~/Pictures/Screenshots --embed                 # embeds the pixels
+organize find "dark dashboard with a big blue area chart" --preview
+```
+
+Note: OpenAI's `text-embedding-3-*` models are text-only and cannot embed images — multimodal embeddings need Voyage (`voyage-multimodal-3`) or similar.
+
+Text embedding models are configurable too — `openai/text-embedding-3-small` (default) or fully local `ollama/nomic-embed-text`.
 
 ## Undo
 
