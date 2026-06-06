@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); the format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] - 2026-06-05
+
+### Added
+- **Inline image previews** — `organize find <query> --preview` renders thumbnails directly in the terminal: Kitty graphics protocol (Ghostty, Kitty), iTerm2 inline images, and a 24-bit-color ANSI fallback everywhere else.
+- **True image embeddings** — set `embeddingModel` to `voyage/voyage-multimodal-3` and `organize index --embed` embeds the *image pixels* instead of the description, making visual qualities ("dark mode", "blue dashboard") searchable. Text queries share the same vector space. `organize auth voyage` / `VOYAGE_API_KEY`.
+- **OpenRouter provider** — `--model openrouter/<vendor>/<model>` runs any vision model on openrouter.ai with a single key (`organize auth openrouter` / `OPENROUTER_API_KEY`). Chat/vision only — OpenRouter has no embeddings endpoint.
+- **Update notifier** — a quiet hint when a newer release exists (checked at most daily, 1.5s timeout, silent offline; disable with `ORGANIZE_NO_UPDATE_CHECK=1`).
+
 ## [0.2.0] - 2026-06-05
 
 ### Added
@@ -49,6 +57,7 @@ All notable changes to this project are documented here. Versions follow [SemVer
 - In-memory downscaling for oversized images (originals never modified).
 - Standalone binaries for macOS/Linux/Windows via GitHub Releases.
 
+[0.3.0]: https://github.com/zachkamran/organize/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/zachkamran/organize/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/zachkamran/organize/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/zachkamran/organize/compare/v0.1.0...v0.1.1

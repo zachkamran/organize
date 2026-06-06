@@ -9,7 +9,7 @@ import { undoCommand } from "./commands/undo";
 import { AnalysisCache } from "./lib/cache";
 import { maybeNotifyUpdate } from "./lib/update";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 
 const program = new Command();
 

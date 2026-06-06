@@ -18,11 +18,12 @@ export interface ResolvedModel {
 /**
  * Resolve a model string to an AI SDK language model:
  *
- *   anthropic/claude-opus-4-8   (cloud — default provider for bare names)
- *   openai/gpt-5.2              (cloud)
- *   google/gemini-3-pro         (cloud)
- *   ollama/qwen3-vl             (local — http://localhost:11434/v1, no key)
- *   lmstudio/qwen3-vl           (local — http://localhost:1234/v1, no key)
+ *   anthropic/claude-opus-4-8        (cloud — default provider for bare names)
+ *   openai/gpt-5.2                   (cloud)
+ *   google/gemini-3-pro              (cloud)
+ *   openrouter/qwen/qwen3-vl-235b    (cloud — any model on openrouter.ai, one key)
+ *   ollama/qwen3-vl                  (local — http://localhost:11434/v1, no key)
+ *   lmstudio/qwen3-vl                (local — http://localhost:1234/v1, no key)
  *
  * Local endpoints can be overridden with OLLAMA_BASE_URL / LMSTUDIO_BASE_URL.
  */
@@ -47,6 +48,19 @@ export function resolveModel(modelString: string): ResolvedModel {
       return { provider, modelId, model: create({ apiKey })(modelId), local: false };
     }
 
+    case "openrouter": {
+      const apiKey = resolveApiKey("openrouter");
+      if (!apiKey) throw new Error(missingKeyMessage("openrouter"));
+      const provider = createOpenAICompatible({
+        name: "openrouter",
+        baseURL: "https://openrouter.ai/api/v1",
+        apiKey,
+        supportsStructuredOutputs: true,
+        headers: { "HTTP-Referer": "https://github.com/zachkamran/organize", "X-Title": "organize" },
+      });
+      return { provider: "openrouter", modelId, model: provider(modelId), local: false };
+    }
+
     case "ollama":
     case "lmstudio": {
       const baseURL =
@@ -68,7 +82,7 @@ export function resolveModel(modelString: string): ResolvedModel {
 
     default:
       throw new Error(
-        `Unknown provider "${providerName}". Supported: anthropic, openai, google, ollama, lmstudio.`,
+        `Unknown provider "${providerName}". Supported: anthropic, openai, google, openrouter, ollama, lmstudio.`,
       );
   }
 }

@@ -75,7 +75,7 @@ export async function loadPriceCatalog(): Promise<void> {
 function lookupPrices(modelId: string): Prices | null {
   if (catalog) {
     // LiteLLM keys vary by provider prefix; try common forms.
-    for (const key of [modelId, `anthropic/${modelId}`, `openai/${modelId}`, `gemini/${modelId}`]) {
+    for (const key of [modelId, `anthropic/${modelId}`, `openai/${modelId}`, `gemini/${modelId}`, `openrouter/${modelId}`]) {
       const entry = catalog[key];
       if (entry?.input_cost_per_token != null && entry?.output_cost_per_token != null) {
         return { input: entry.input_cost_per_token, output: entry.output_cost_per_token };

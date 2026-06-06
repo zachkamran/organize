@@ -1,12 +1,13 @@
 import { spawnSync } from "node:child_process";
 
-export type Provider = "anthropic" | "openai" | "google" | "voyage";
+export type Provider = "anthropic" | "openai" | "google" | "voyage" | "openrouter";
 
 export const PROVIDER_ENV_VARS: Record<Provider, string> = {
   anthropic: "ANTHROPIC_API_KEY",
   openai: "OPENAI_API_KEY",
   google: "GOOGLE_GENERATIVE_AI_API_KEY",
   voyage: "VOYAGE_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
 };
 
 const KEYCHAIN_SERVICE = "organize-cli";

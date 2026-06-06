@@ -129,11 +129,14 @@ Pinned categories (via `--categories` or config) are preferred by the model but 
 Default is `anthropic/claude-haiku-4-5` — fast and cheap, plenty for screenshot classification. Use any vision-capable model:
 
 ```bash
-organize ~/Desktop --model anthropic/claude-opus-4-8    # maximum quality
+organize ~/Desktop --model anthropic/claude-opus-4-8        # maximum quality
 organize ~/Desktop --model openai/gpt-5.2
 organize ~/Desktop --model google/gemini-3-pro
-organize config set model anthropic/claude-opus-4-8     # change the default
+organize ~/Desktop --model openrouter/qwen/qwen3-vl-235b    # any model on openrouter.ai
+organize config set model anthropic/claude-opus-4-8         # change the default
 ```
+
+[OpenRouter](https://openrouter.ai) gives you one key for hundreds of models (`organize auth openrouter`). Note: OpenRouter is chat/vision only — it has no embeddings endpoint, so image embeddings still require a Voyage key.
 
 ### Local models — free and private
 

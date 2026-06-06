@@ -4,7 +4,7 @@ import { keychainSetInteractive, PROVIDER_ENV_VARS, type Provider } from "../lib
 export function authCommand(providerArg: string): void {
   const provider = providerArg.toLowerCase();
   if (!(provider in PROVIDER_ENV_VARS)) {
-    console.error(pc.red(`Unknown provider "${providerArg}". Supported: anthropic, openai, google, voyage.`));
+    console.error(pc.red(`Unknown provider "${providerArg}". Supported: anthropic, openai, google, openrouter, voyage.`));
     process.exit(1);
   }
 
