@@ -25,10 +25,27 @@ jobs:
           bun build src/cli.ts --compile --target=bun-windows-x64 --outfile release/organize-windows-x64.exe
           cd release && shasum -a 256 organize-* > checksums.txt
 
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="$version" '
+            $0 ~ "^## \\[" ver "\\]" { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          # Fall back to auto-generated notes if the section is missing/empty
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "FALLBACK_NOTES=1" >> "$GITHUB_ENV"
+          fi
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" release/* \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes
+          if [ "${FALLBACK_NOTES:-}" = "1" ]; then
+            gh release create "$GITHUB_REF_NAME" release/* \
+              --title "$GITHUB_REF_NAME" --generate-notes
+          else
+            gh release create "$GITHUB_REF_NAME" release/* \
+              --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+          fi
