@@ -6,6 +6,7 @@ import { findCommand } from "./commands/find";
 import { indexCommand } from "./commands/index-cmd";
 import { runCommand } from "./commands/run";
 import { undoCommand } from "./commands/undo";
+import { watchCommand } from "./commands/watch";
 import { AnalysisCache } from "./lib/cache";
 import { maybeNotifyUpdate } from "./lib/update";
 
@@ -60,6 +61,16 @@ program
   .option("--include-subdirs", "recurse into subdirectories")
   .option("--embed", "also compute embeddings for semantic find")
   .action(indexCommand);
+
+program
+  .command("watch")
+  .description("auto-index (and optionally embed) new images as they're added")
+  .argument("[dir]", "directory to watch (default: current directory)")
+  .option("--embed", "also embed new images for semantic find")
+  .option("--include-subdirs", "watch subdirectories too")
+  .option("--install", "install as a macOS launchd agent (runs in background, survives reboot)")
+  .option("--uninstall", "remove the launchd agent")
+  .action(watchCommand);
 
 program
   .command("auth")
