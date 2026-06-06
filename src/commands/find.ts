@@ -4,11 +4,13 @@ import pc from "picocolors";
 import { AnalysisCache, type CacheEntry } from "../lib/cache";
 import { loadConfig } from "../lib/config";
 import { cosineSimilarity, embedQuery, resolveEmbeddingModel, VectorStore } from "../lib/embeddings";
+import { detectGraphics, renderImage } from "../lib/render";
 
 export interface FindOptions {
   limit?: string;
   all?: boolean;
   keyword?: boolean; // force keyword-only search
+  preview?: boolean; // render image thumbnails inline (Ghostty/Kitty/iTerm2/ANSI)
 }
 
 /**
@@ -66,7 +68,10 @@ export async function findCommand(query: string, options: FindOptions): Promise<
     return;
   }
 
-  const limit = options.all ? scored.length : parseInt(options.limit ?? "10", 10) || 10;
+  const graphics = options.preview ? detectGraphics() : "none";
+  const limit = options.all
+    ? scored.length
+    : parseInt(options.limit ?? (options.preview ? "5" : "10"), 10) || 10;
   for (const { entry } of scored.slice(0, limit)) {
     const gone = !existsSync(entry.path!);
     console.log(
@@ -74,6 +79,13 @@ export async function findCommand(query: string, options: FindOptions): Promise<
     );
     console.log(`  ${entry.description}`);
     console.log(`  ${pc.dim(entry.path!)}`);
+    if (graphics !== "none" && !gone) {
+      try {
+        process.stdout.write(await renderImage(entry.path!, graphics));
+      } catch {
+        // unrenderable image — text result already shown
+      }
+    }
   }
   if (scored.length > limit) {
     console.log(pc.dim(`\n…and ${scored.length - limit} more. Use --all or --limit <n>.`));

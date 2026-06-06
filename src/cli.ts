@@ -7,6 +7,9 @@ import { indexCommand } from "./commands/index-cmd";
 import { runCommand } from "./commands/run";
 import { undoCommand } from "./commands/undo";
 import { AnalysisCache } from "./lib/cache";
+import { maybeNotifyUpdate } from "./lib/update";
+
+const VERSION = "0.2.0";
 
 const program = new Command();
 
@@ -15,7 +18,7 @@ program
   .description(
     "AI-powered file organizer — looks at your screenshots, describes them, and sorts them into folders.",
   )
-  .version("0.2.0");
+  .version(VERSION);
 
 program
   .argument("[dir]", "directory to organize (default: current directory)")
@@ -44,6 +47,7 @@ program
   .option("--limit <n>", "max results to show", "10")
   .option("--all", "show all matches")
   .option("--keyword", "keyword matching only (skip semantic search)")
+  .option("-p, --preview", "show image thumbnails inline (Ghostty/Kitty/iTerm2; ANSI elsewhere)")
   .action(findCommand);
 
 program
@@ -85,7 +89,10 @@ program
     }
   });
 
-program.parseAsync().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+program
+  .parseAsync()
+  .then(() => maybeNotifyUpdate(VERSION))
+  .catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
